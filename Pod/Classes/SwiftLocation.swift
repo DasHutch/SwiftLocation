@@ -51,7 +51,7 @@ public typealias onRegionEvent = ( (region: AnyObject?) -> Void)
 public typealias onRangingBacon = ( (beacons: [AnyObject]) -> Void)
 // Geocoding related handlers
 public typealias onSuccessGeocoding = ( (place: CLPlacemark?) -> Void)
-public typealias onSuccessGeocodings = ( (places: [CLPlacemark]?) -> Void)
+public typealias onSuccessGeocodingPlaces = ( (places: [CLPlacemark]?) -> Void)
 public typealias onErrorGeocoding = ( (error: NSError?) -> Void)
 
 //MARK: Service Status Enum
@@ -297,12 +297,11 @@ public class SwiftLocation: NSObject, CLLocationManagerDelegate {
      - parameter onSuccess: on success handler
      - parameter onFail:    on error handler
      */
-    public func reverseAddresses(service: Service!, address: String!, region: CLRegion?, onSuccess: onSuccessGeocodings?, onFail: onErrorGeocoding? ) {
+    public func reverseAddresses(service: Service!, address: String!, region: CLRegion?, onSuccess: onSuccessGeocodingPlaces?, onFail: onErrorGeocoding? ) {
         if service == Service.Apple {
             reverseAppleAddresses(address, region: region, onSuccess: onSuccess, onFail: onFail)
         } else {
-            //reverseGoogleAddress(address, onSuccess: onSuccess, onFail: onFail)
-            print("TODO: Implement reverseGoogleAddresses")
+            reverseGoogleAddresses(address, onSuccess: onSuccess, onFail: onFail)
         }
     }
     
@@ -499,6 +498,41 @@ public class SwiftLocation: NSObject, CLLocationManagerDelegate {
         }
     }
     
+    private func reverseGoogleAddresses(address: String!, onSuccess: onSuccessGeocodingPlaces?, onFail: onErrorGeocoding?) {
+        var APIURLString = "https://maps.googleapis.com/maps/api/geocode/json?address=\(address)" as NSString
+        APIURLString = APIURLString.stringByAddingPercentEscapesUsingEncoding(NSUTF8StringEncoding)!
+        let APIURL = NSURL(string: APIURLString as String)
+        let APIURLRequest = NSURLRequest(URL: APIURL!)
+        NSURLConnection.sendAsynchronousRequest(APIURLRequest, queue: NSOperationQueue.mainQueue()) { (response, data, error) in
+            if error != nil {
+                onFail?(error: error)
+            } else {
+                if data != nil {
+                    let jsonResult: NSDictionary = (try! NSJSONSerialization.JSONObjectWithData(data!, options: NSJSONReadingOptions.MutableContainers)) as! NSDictionary
+                    let (error,noResults) = self.validateGoogleJSONResponse(jsonResult)
+                    if noResults == true { // request is ok but not results are returned
+                        onSuccess?(places: nil)
+                    } else if (error != nil) { // something went wrong with request
+                        onFail?(error: error)
+                    } else { // we have some good results to show
+                        if let results = resultDict.valueForKey("results") as! NSArray {
+                            var places = [CLPlacemark]()
+                            for result in results {
+                                let address = SwiftLocationParser()
+                                address.parseGoogleLocationDict(result)
+                                let placemark:CLPlacemark = address.getPlacemark()
+                                places.append(placemark)
+                            }
+                            onSuccess?(place: placemark)
+                        }else {
+                           onSuccess?(places: nil)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     private func validateGoogleJSONResponse(jsonResult: NSDictionary!) -> (error: NSError?, noResults: Bool!) {
         var status = jsonResult.valueForKey("status") as! NSString
         status = status.lowercaseString
@@ -572,7 +606,7 @@ public class SwiftLocation: NSObject, CLLocationManagerDelegate {
         }
     }
     
-    private func reverseAppleAddresses(address: String!, region: CLRegion?, onSuccess: onSuccessGeocodings?, onFail: onErrorGeocoding? ) {
+    private func reverseAppleAddresses(address: String!, region: CLRegion?, onSuccess: onSuccessGeocodingPlaces?, onFail: onErrorGeocoding? ) {
         let geocoder = CLGeocoder()
         if region != nil {
             geocoder.geocodeAddressString(address, inRegion: region, completionHandler: { (placemarks, error) in
@@ -1152,8 +1186,7 @@ private class SwiftLocationParser: NSObject {
         }
     }
     
-    private func parseGoogleLocationData(resultDict:NSDictionary) {
-        let locationDict = (resultDict.valueForKey("results") as! NSArray).firstObject as! NSDictionary
+    private func parseGoogleLocationDict(locationDict:NSDictionary) {
         let formattedAddrs = locationDict.objectForKey("formatted_address") as! NSString
         
         let geometry = locationDict.objectForKey("geometry") as! NSDictionary
@@ -1178,6 +1211,11 @@ private class SwiftLocationParser: NSObject {
         self.country =  component("country", inArray: addressComponents, ofType: "long_name")
         self.ISOcountryCode =  component("country", inArray: addressComponents, ofType: "short_name")
         self.formattedAddress = formattedAddrs;
+    }
+    
+    private func parseGoogleLocationData(resultDict:NSDictionary) {
+        let locationDict = (resultDict.valueForKey("results") as! NSArray).firstObject as! NSDictionary
+        parseGoogleLocationDict(locationDict)
     }
     
     private func getPlacemark() -> CLPlacemark {
