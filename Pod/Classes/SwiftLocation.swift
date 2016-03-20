@@ -515,17 +515,23 @@ public class SwiftLocation: NSObject, CLLocationManagerDelegate {
                     } else if (error != nil) { // something went wrong with request
                         onFail?(error: error)
                     } else { // we have some good results to show
-                        if let results = resultDict.valueForKey("results") as! NSArray {
+                        if let results = jsonResult.valueForKey("results") as? NSArray {
                             var places = [CLPlacemark]()
                             for result in results {
-                                let address = SwiftLocationParser()
-                                address.parseGoogleLocationDict(result)
-                                let placemark:CLPlacemark = address.getPlacemark()
-                                places.append(placemark)
+                                if let locDict = result as? NSDictionary {
+                                    let address = SwiftLocationParser()
+                                    address.parseGoogleLocationDict(locDict)
+                                    let placemark:CLPlacemark = address.getPlacemark()
+                                    places.append(placemark)
+                                }
                             }
-                            onSuccess?(place: placemark)
+                            if places.count > 0 {
+                                onSuccess?(places: places)
+                            }else {
+                                onSuccess?(places: nil)
+                            }
                         }else {
-                           onSuccess?(places: nil)
+                            onSuccess?(places: nil)
                         }
                     }
                 }
